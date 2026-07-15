@@ -2,23 +2,31 @@
 
 This repository accompanies the following article:
 
-SUN, C.-H., Tseng, Y.-H.  & Yang, J.-D. (2026). Quantitative morphometrics reveal consistent shoot-order leaf differentiation and apical-to-basal laminal cell variation in two _Meiothecium_ (Sematophyllaceae) species in Taiwan
+> **Sun, C.-H., Tseng, Y.-H. & Yang, J.-D. (2026).**
+> *Quantitative morphometrics reveal consistent shoot-order leaf differentiation and apical-to-basal laminal cell variation in two* _Meiothecium_ *(Sematophyllaceae) species in Taiwan*.
+> Accepted for publication in **Hattoria**.
 
-Accepted for publication in *Hattoria*.
+## Overview
 
----
+This repository contains the datasets, R scripts, statistical analyses, and figure-generation workflows used in the study.
+
+## Repository structure
+
+```
+data/       Morphometric datasets
+scripts/    R scripts for analyses and figure generation
+figures/    Publication-quality figures
+docs/       Supplementary documentation
+```
 
 ## Contents
 
-This repository contains:
-
-- R scripts
 - Morphometric datasets
-- Figure generation workflows
+- Cell measurement data
+- R scripts for data analysis
+- Figure-generation workflows
 - Statistical analyses
 
-used in this study.
+## Citation
 
----
-
-The DOI and full citation will be updated after publication.
+The complete citation and DOI will be added after publication.
