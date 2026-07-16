@@ -31,7 +31,7 @@ library(systemfonts)
 
 data_file <- file.path(
   "data",
-  "Meiothecium_cell.xlsx"
+  "Meiothecium_cell.csv"
 )
 
 out_file <- file.path(
