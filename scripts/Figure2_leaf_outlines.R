@@ -161,16 +161,61 @@ dat <- dat %>%
     voucher = trimws(as.character(voucher)),
     shoot_order = tolower(trimws(as.character(shoot_order))),
     leaf = trimws(as.character(leaf)),
-    character = trimws(as.character(character)),
+    character = tolower(trimws(as.character(character))),
     value = suppressWarnings(as.numeric(value))
   )
 
-dat$character <- gsub(
-  pattern = "L/W",
-  replacement = "L_W",
-  x = dat$character,
-  fixed = TRUE
-)
+## Standardize shoot-order labels used in the workbook
+dat <- dat %>%
+  mutate(
+    shoot_order = case_when(
+      shoot_order %in% c("first", "primary", "first order", "primary shoot") ~ "primary",
+      shoot_order %in% c("second", "secondary", "second order", "secondary shoot") ~ "secondary",
+      TRUE ~ shoot_order
+    )
+  )
+
+## Standardize morphometric character names used in the workbook
+dat <- dat %>%
+  mutate(
+    character = case_when(
+      character %in% c(
+        "length of leaf",
+        "leaf length",
+        "ll"
+      ) ~ "LL",
+
+      character %in% c(
+        "width of leaf",
+        "leaf width",
+        "maximum leaf width",
+        "lw"
+      ) ~ "LW",
+
+      character %in% c(
+        "width position at the leaf",
+        "position of maximum leaf width",
+        "width position",
+        "wp"
+      ) ~ "Wp",
+
+      character %in% c(
+        "l/w ratio",
+        "length-to-width ratio",
+        "length to width ratio",
+        "l_w"
+      ) ~ "L_W",
+
+      character %in% c(
+        "related width position at the leaf",
+        "relative position of maximum leaf width",
+        "relative width position",
+        "rewp"
+      ) ~ "reWp",
+
+      TRUE ~ character
+    )
+  )
 
 dat <- dat %>%
   mutate(
