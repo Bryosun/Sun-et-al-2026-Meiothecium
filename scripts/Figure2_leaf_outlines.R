@@ -57,7 +57,7 @@ suppressPackageStartupMessages({
 
 data_file <- file.path(
   "data",
-  "Meiothecium_leaf_summary.csv"
+  "Meiothecium_leaf.csv"
 )
 
 tiff_file <- file.path(
