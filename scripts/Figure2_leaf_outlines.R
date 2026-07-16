@@ -1,4 +1,4 @@
-## ============================================================
+script = r'''## ============================================================
 ## Figure 2: Meiothecium idealized leaf outlines
 ##
 ## Sun et al. (2026)
@@ -33,31 +33,53 @@
 ## - Vector PDF
 ## ============================================================
 
-
 ## ------------------------------------------------------------
 ## 0. Load packages
 ## ------------------------------------------------------------
 
+required_packages <- c(
+  "readxl",
+  "tidyr",
+  "dplyr",
+  "ggplot2"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    paste0(
+      "The following R packages are required but not installed: ",
+      paste(missing_packages, collapse = ", "),
+      "\nInstall them with:\ninstall.packages(c(",
+      paste(sprintf('"%s"', missing_packages), collapse = ", "),
+      "))"
+    )
+  )
+}
+
 suppressPackageStartupMessages({
+  library(readxl)
   library(tidyr)
   library(dplyr)
   library(ggplot2)
   library(grid)
 })
 
-
 ## ------------------------------------------------------------
 ## 1. Define input and output paths
-## ------------------------------------------------------------
-##
-## Run this script from the repository root directory:
-##
-## source("scripts/Figure2_leaf_outlines.R")
 ## ------------------------------------------------------------
 
 data_file <- file.path(
   "data",
-  "Meiothecium_leaf.csv"
+  "Meiothecium_leaf.xlsx"
 )
 
 tiff_file <- file.path(
@@ -70,9 +92,6 @@ pdf_file <- file.path(
   "Figure2_leaf_outlines.pdf"
 )
 
-
-## Check that the input file exists
-
 if (!file.exists(data_file)) {
   stop(
     paste0(
@@ -83,9 +102,6 @@ if (!file.exists(data_file)) {
   )
 }
 
-
-## Create the output directory if necessary
-
 if (!dir.exists("figures")) {
   dir.create(
     "figures",
@@ -93,28 +109,15 @@ if (!dir.exists("figures")) {
   )
 }
 
-
 ## ------------------------------------------------------------
-## 2. Read morphometric summary data
-## ------------------------------------------------------------
-##
-## Required CSV columns:
-##
-## species
-## shoot_order
-## character
-## mean
-## sd
-## min
-## max
+## 2. Read raw morphometric data
 ## ------------------------------------------------------------
 
-dat <- read.csv(
-  file = data_file,
-  stringsAsFactors = FALSE,
-  check.names = FALSE
+dat <- readxl::read_excel(
+  path = data_file
 )
 
+names(dat) <- trimws(names(dat))
 
 ## ------------------------------------------------------------
 ## 3. Check required columns
@@ -138,54 +141,24 @@ if (length(missing_columns) > 0) {
   stop(
     paste0(
       "The input file is missing the following columns: ",
-      paste(
-        missing_columns,
-        collapse = ", "
-      )
+      paste(missing_columns, collapse = ", ")
     )
   )
 }
 
-
 ## ------------------------------------------------------------
-## 4. Clean and standardize data
+## 4. Clean and standardize raw data
 ## ------------------------------------------------------------
 
 dat <- dat %>%
   mutate(
-    species = trimws(
-      as.character(species)
-    ),
-
-    shoot_order = tolower(
-      trimws(
-        as.character(shoot_order)
-      )
-    ),
-
-    character = trimws(
-      as.character(character)
-    ),
-
-    mean = suppressWarnings(
-      as.numeric(mean)
-    ),
-
-    sd = suppressWarnings(
-      as.numeric(sd)
-    ),
-
-    min = suppressWarnings(
-      as.numeric(min)
-    ),
-
-    max = suppressWarnings(
-      as.numeric(max)
-    )
+    species = trimws(as.character(species)),
+    voucher = trimws(as.character(voucher)),
+    shoot_order = tolower(trimws(as.character(shoot_order))),
+    leaf = trimws(as.character(leaf)),
+    character = trimws(as.character(character)),
+    value = suppressWarnings(as.numeric(value))
   )
-
-
-## Standardize character names
 
 dat$character <- gsub(
   pattern = "L/W",
@@ -193,9 +166,6 @@ dat$character <- gsub(
   x = dat$character,
   fixed = TRUE
 )
-
-
-## Define display order
 
 dat <- dat %>%
   mutate(
@@ -206,7 +176,6 @@ dat <- dat %>%
         "M. microcarpum"
       )
     ),
-
     shoot_order = factor(
       shoot_order,
       levels = c(
@@ -218,46 +187,56 @@ dat <- dat %>%
   filter(
     !is.na(species),
     !is.na(shoot_order),
-    !is.na(character)
+    !is.na(character),
+    !is.na(value)
   )
 
+if (nrow(dat) == 0) {
+  stop(
+    "No usable observations remained after data cleaning. ",
+    "Check species names, shoot_order values, character names, and numeric values."
+  )
+}
 
 ## ------------------------------------------------------------
-## 5. Convert summary data to wide format
+## 5. Calculate summary statistics from raw observations
 ## ------------------------------------------------------------
+
+summary_dat <- dat %>%
+  group_by(
+    species,
+    shoot_order,
+    character
+  ) %>%
+  summarise(
+    n = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    min = min(value, na.rm = TRUE),
+    max = max(value, na.rm = TRUE),
+    .groups = "drop"
+  )
 
 wide_mean <- pivot_wider(
-  data = dat,
-  id_cols = c(
-    species,
-    shoot_order
-  ),
+  data = summary_dat,
+  id_cols = c(species, shoot_order),
   names_from = character,
   values_from = mean
 )
 
 wide_min <- pivot_wider(
-  data = dat,
-  id_cols = c(
-    species,
-    shoot_order
-  ),
+  data = summary_dat,
+  id_cols = c(species, shoot_order),
   names_from = character,
   values_from = min
 )
 
 wide_max <- pivot_wider(
-  data = dat,
-  id_cols = c(
-    species,
-    shoot_order
-  ),
+  data = summary_dat,
+  id_cols = c(species, shoot_order),
   names_from = character,
   values_from = max
 )
-
-
-## Traits required for outline reconstruction
 
 need_cols <- c(
   "LL",
@@ -265,13 +244,7 @@ need_cols <- c(
   "Wp"
 )
 
-
-## Check that all required traits are present
-
-check_required_traits <- function(
-    data,
-    object_name
-) {
+check_required_traits <- function(data, object_name) {
   missing_traits <- setdiff(
     need_cols,
     names(data)
@@ -282,88 +255,50 @@ check_required_traits <- function(
       paste0(
         object_name,
         " is missing the following traits: ",
-        paste(
-          missing_traits,
-          collapse = ", "
-        )
+        paste(missing_traits, collapse = ", "),
+        "\nCheck the values in the 'character' column of ",
+        data_file,
+        "."
       )
     )
   }
 }
 
-
-check_required_traits(
-  wide_mean,
-  "wide_mean"
-)
-
-check_required_traits(
-  wide_min,
-  "wide_min"
-)
-
-check_required_traits(
-  wide_max,
-  "wide_max"
-)
-
-
-## Keep only the traits used in the reconstruction
+check_required_traits(wide_mean, "wide_mean")
+check_required_traits(wide_min, "wide_min")
+check_required_traits(wide_max, "wide_max")
 
 wide_mean <- wide_mean[
   ,
-  c(
-    "species",
-    "shoot_order",
-    need_cols
-  )
+  c("species", "shoot_order", need_cols)
 ]
 
 wide_min <- wide_min[
   ,
-  c(
-    "species",
-    "shoot_order",
-    need_cols
-  )
+  c("species", "shoot_order", need_cols)
 ]
 
 wide_max <- wide_max[
   ,
-  c(
-    "species",
-    "shoot_order",
-    need_cols
+  c("species", "shoot_order", need_cols)
+]
+
+wide_mean <- wide_mean[complete.cases(wide_mean), ]
+wide_min <- wide_min[complete.cases(wide_min), ]
+wide_max <- wide_max[complete.cases(wide_max), ]
+
+if (
+  nrow(wide_mean) == 0 ||
+  nrow(wide_min) == 0 ||
+  nrow(wide_max) == 0
+) {
+  stop(
+    "No complete species × shoot-order combinations were available for LL, LW, and Wp."
   )
-]
-
-
-## Remove incomplete combinations
-
-wide_mean <- wide_mean[
-  complete.cases(wide_mean),
-]
-
-wide_min <- wide_min[
-  complete.cases(wide_min),
-]
-
-wide_max <- wide_max[
-  complete.cases(wide_max),
-]
-
+}
 
 ## ------------------------------------------------------------
 ## 6. Idealized leaf outline model
-## ------------------------------------------------------------
-##
-## The outline is reconstructed using two power functions:
-##
-## 1. Leaf base to the position of maximum width
-## 2. Position of maximum width to the leaf apex
-##
-## The resulting half-width profile is mirrored around the
-## longitudinal axis to create a symmetrical closed outline.
 ## ------------------------------------------------------------
 
 leaf_curves_moss <- function(
@@ -374,9 +309,6 @@ leaf_curves_moss <- function(
     base_power = 0.65,
     apex_power = 1.85
 ) {
-
-  ## Validate inputs
-
   if (
     length(LL) != 1 ||
     length(LW) != 1 ||
@@ -388,15 +320,9 @@ leaf_curves_moss <- function(
     LW <= 0
   ) {
     stop(
-      paste0(
-        "LL and LW must be positive finite values, ",
-        "and Wp must be a finite value."
-      )
+      "LL and LW must be positive finite values, and Wp must be a finite value."
     )
   }
-
-
-  ## Longitudinal positions along the leaf
 
   x <- seq(
     from = 0,
@@ -404,66 +330,29 @@ leaf_curves_moss <- function(
     length.out = n
   )
 
-
-  ## Initialize the width profile
-
-  width <- numeric(
-    length(x)
-  )
-
-
-  ## Prevent Wp from falling exactly at the base or apex
+  width <- numeric(length(x))
 
   Wp <- max(
-    min(
-      Wp,
-      LL * 0.95
-    ),
+    min(Wp, LL * 0.95),
     LL * 0.05
   )
 
-
-  ## Calculate width at each longitudinal position
-
   for (i in seq_along(x)) {
-
     if (x[i] <= Wp) {
-
-      ## Leaf base to maximum width
-
-      width[i] <- LW *
-        (
-          x[i] / Wp
-        )^base_power
-
+      width[i] <- LW * (x[i] / Wp)^base_power
     } else {
-
-      ## Maximum width to leaf apex
-
       width[i] <- LW *
         (
           1 -
             (
-              (
-                x[i] - Wp
-              ) /
-                (
-                  LL - Wp
-                )
+              (x[i] - Wp) /
+                (LL - Wp)
             )^apex_power
         )
     }
   }
 
-
-  ## Remove possible negative values caused by rounding
-
-  width[
-    width < 0
-  ] <- 0
-
-
-  ## Return upper and lower half-width coordinates
+  width[width < 0] <- 0
 
   data.frame(
     x = x,
@@ -472,27 +361,17 @@ leaf_curves_moss <- function(
   )
 }
 
-
 ## ------------------------------------------------------------
-## 7. Build curves for all species and shoot orders
+## 7. Build curves
 ## ------------------------------------------------------------
 
-build_curves <- function(
-    wide,
-    tag
-) {
-
+build_curves <- function(wide, tag) {
   do.call(
     rbind,
     lapply(
-      seq_len(
-        nrow(wide)
-      ),
+      seq_len(nrow(wide)),
       function(i) {
-
-        row_data <- wide[
-          i,
-        ]
+        row_data <- wide[i, ]
 
         curve_data <- leaf_curves_moss(
           LL = row_data$LL,
@@ -510,29 +389,15 @@ build_curves <- function(
   )
 }
 
-
-cur_mean <- build_curves(
-  wide = wide_mean,
-  tag = "mean"
-)
-
-cur_min <- build_curves(
-  wide = wide_min,
-  tag = "min"
-)
-
-cur_max <- build_curves(
-  wide = wide_max,
-  tag = "max"
-)
-
+cur_mean <- build_curves(wide_mean, "mean")
+cur_min <- build_curves(wide_min, "min")
+cur_max <- build_curves(wide_max, "max")
 
 ## ------------------------------------------------------------
 ## 8. Construct closed outline paths
 ## ------------------------------------------------------------
 
 make_closed_path <- function(cur) {
-
   groups <- split(
     cur,
     interaction(
@@ -542,53 +407,24 @@ make_closed_path <- function(cur) {
     )
   )
 
-
   closed_paths <- lapply(
     groups,
     function(df) {
-
       data.frame(
-        x = c(
-          df$x,
-          rev(df$x),
-          df$x[1]
-        ),
-
-        y = c(
-          df$upper,
-          rev(df$lower),
-          df$upper[1]
-        ),
-
+        x = c(df$x, rev(df$x), df$x[1]),
+        y = c(df$upper, rev(df$lower), df$upper[1]),
         species = df$species[1],
-
         shoot_order = df$shoot_order[1]
       )
     }
   )
 
-
-  do.call(
-    rbind,
-    closed_paths
-  )
+  do.call(rbind, closed_paths)
 }
 
-
-mean_path <- make_closed_path(
-  cur_mean
-)
-
-min_path <- make_closed_path(
-  cur_min
-)
-
-max_path <- make_closed_path(
-  cur_max
-)
-
-
-## Restore factor levels after combining data frames
+mean_path <- make_closed_path(cur_mean)
+min_path <- make_closed_path(cur_min)
+max_path <- make_closed_path(cur_max)
 
 species_levels <- c(
   "M. intextum",
@@ -600,124 +436,64 @@ shoot_order_levels <- c(
   "secondary"
 )
 
-
-mean_path <- mean_path %>%
-  mutate(
-    species = factor(
-      species,
-      levels = species_levels
-    ),
-
-    shoot_order = factor(
-      shoot_order,
-      levels = shoot_order_levels
+restore_factors <- function(data) {
+  data %>%
+    mutate(
+      species = factor(
+        species,
+        levels = species_levels
+      ),
+      shoot_order = factor(
+        shoot_order,
+        levels = shoot_order_levels
+      )
     )
-  )
+}
 
-
-min_path <- min_path %>%
-  mutate(
-    species = factor(
-      species,
-      levels = species_levels
-    ),
-
-    shoot_order = factor(
-      shoot_order,
-      levels = shoot_order_levels
-    )
-  )
-
-
-max_path <- max_path %>%
-  mutate(
-    species = factor(
-      species,
-      levels = species_levels
-    ),
-
-    shoot_order = factor(
-      shoot_order,
-      levels = shoot_order_levels
-    )
-  )
-
+mean_path <- restore_factors(mean_path)
+min_path <- restore_factors(min_path)
+max_path <- restore_factors(max_path)
 
 ## ------------------------------------------------------------
 ## 9. Define one shared scale bar
 ## ------------------------------------------------------------
-##
-## The scale bar is assigned specifically to the lower-left
-## facet:
-##
-## M. intextum × secondary shoot leaves
-##
-## Supplying species and shoot_order prevents ggplot2 from
-## repeating the scale bar in every facet.
-## ------------------------------------------------------------
 
-x_min_all <- min(
-  max_path$x,
-  na.rm = TRUE
-)
-
-y_min_all <- min(
-  max_path$y,
-  na.rm = TRUE
-)
-
+x_min_all <- min(max_path$x, na.rm = TRUE)
+y_min_all <- min(max_path$y, na.rm = TRUE)
 
 bar_len <- 0.5
-
 bar_x0 <- x_min_all + 0.10
-
 bar_x1 <- bar_x0 + bar_len
-
 bar_y <- y_min_all + 0.10
-
 
 scale_bar_df <- data.frame(
   species = factor(
     "M. intextum",
     levels = species_levels
   ),
-
   shoot_order = factor(
     "secondary",
     levels = shoot_order_levels
   ),
-
   x = bar_x0,
-
   xend = bar_x1,
-
   y = bar_y,
-
   yend = bar_y
 )
-
 
 scale_label_df <- data.frame(
   species = factor(
     "M. intextum",
     levels = species_levels
   ),
-
   shoot_order = factor(
     "secondary",
     levels = shoot_order_levels
   ),
-
-  x = (
-    bar_x0 +
-      bar_x1
-  ) / 2,
-
+  x = (bar_x0 + bar_x1) / 2,
   y = bar_y - 0.06,
-
   label = "0.5 mm"
 )
-
 
 ## ------------------------------------------------------------
 ## 10. Line settings
@@ -735,164 +511,103 @@ lt_mean <- "solid"
 lt_max <- "22"
 lt_min <- "solid"
 
-
 ## ------------------------------------------------------------
 ## 11. Create plot
 ## ------------------------------------------------------------
 
 p <- ggplot() +
-
-  ## Maximum outline: black short-dashed line
-
   geom_path(
     data = max_path,
-
     aes(
       x = x,
       y = y,
-      group = interaction(
-        species,
-        shoot_order
-      )
+      group = interaction(species, shoot_order)
     ),
-
     color = col_max,
     linewidth = lw_max,
     linetype = lt_max,
     lineend = "round",
     linejoin = "round"
   ) +
-
-
-  ## Minimum outline: grey solid line
-
   geom_path(
     data = min_path,
-
     aes(
       x = x,
       y = y,
-      group = interaction(
-        species,
-        shoot_order
-      )
+      group = interaction(species, shoot_order)
     ),
-
     color = col_min,
     linewidth = lw_min,
     linetype = lt_min,
     lineend = "round",
     linejoin = "round"
   ) +
-
-
-  ## Mean outline: black solid line
-
   geom_path(
     data = mean_path,
-
     aes(
       x = x,
       y = y,
-      group = interaction(
-        species,
-        shoot_order
-      )
+      group = interaction(species, shoot_order)
     ),
-
     color = col_mean,
     linewidth = lw_mean,
     linetype = lt_mean,
     lineend = "round",
     linejoin = "round"
   ) +
-
-
-  ## Preserve the original faceted layout
-
   facet_grid(
     shoot_order ~ species
   ) +
-
-
-  ## Preserve equal scaling in the x and y directions
-
   coord_equal() +
-
-
-  ## Preserve the original print-safe theme
-
   theme_void() +
-
   theme(
     strip.text = element_text(
       size = 12,
       face = "italic",
       family = "Arial"
     ),
-
     text = element_text(
       family = "Arial"
     ),
-
     panel.spacing = unit(
       1.2,
       "lines"
     ),
-
     plot.background = element_rect(
       fill = "white",
       color = NA
     )
   ) +
-
-
-  ## One shared 0.5 mm scale bar
-
   geom_segment(
     data = scale_bar_df,
-
     aes(
       x = x,
       xend = xend,
       y = y,
       yend = yend
     ),
-
     inherit.aes = FALSE,
-
     color = "black",
     linewidth = 0.9,
     lineend = "butt"
   ) +
-
-
-  ## Scale-bar label
-
   geom_text(
     data = scale_label_df,
-
     aes(
       x = x,
       y = y,
       label = label
     ),
-
     inherit.aes = FALSE,
-
     color = "black",
     size = 3,
     family = "Arial"
   )
 
-
-## Display the plot
-
 print(p)
 
-
 ## ------------------------------------------------------------
-## 12. Save high-resolution TIFF
+## 12. Save outputs
 ## ------------------------------------------------------------
 
 ggsave(
@@ -906,11 +621,6 @@ ggsave(
   bg = "white"
 )
 
-
-## ------------------------------------------------------------
-## 13. Save vector PDF
-## ------------------------------------------------------------
-
 ggsave(
   filename = pdf_file,
   plot = p,
@@ -919,11 +629,6 @@ ggsave(
   units = "mm",
   bg = "white"
 )
-
-
-## ------------------------------------------------------------
-## 14. Completion message
-## ------------------------------------------------------------
 
 cat(
   "\nFigure export completed.\n",
@@ -934,3 +639,10 @@ cat(
   "\n",
   sep = ""
 )
+'''
+
+path = "/mnt/data/Figure2_leaf_outlines.R"
+with open(path, "w", encoding="utf-8") as f:
+    f.write(script)
+
+print(path)
