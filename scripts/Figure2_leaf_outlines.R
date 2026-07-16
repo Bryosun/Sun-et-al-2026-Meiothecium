@@ -122,12 +122,11 @@ dat <- read.csv(
 
 required_columns <- c(
   "species",
+  "voucher",
   "shoot_order",
+  "leaf",
   "character",
-  "mean",
-  "sd",
-  "min",
-  "max"
+  "value"
 )
 
 missing_columns <- setdiff(
