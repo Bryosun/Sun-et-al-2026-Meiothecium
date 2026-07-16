@@ -18,12 +18,47 @@
 ## 600 dpi TIFF with LZW compression
 ## =========================================================
 
-library(tidyverse)
-library(readxl)
-library(ragg)
-library(patchwork)
-library(grid)
-library(systemfonts)
+## ---------------------------------------------------------
+## 0. Check and load packages
+## ---------------------------------------------------------
+
+required_packages <- c(
+  "tidyverse",
+  "readxl",
+  "ragg",
+  "patchwork",
+  "systemfonts"
+)
+
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    paste0(
+      "The following R packages are required but not installed: ",
+      paste(missing_packages, collapse = ", "),
+      "\nInstall them with:\ninstall.packages(c(",
+      paste(sprintf('"%s"', missing_packages), collapse = ", "),
+      "))"
+    )
+  )
+}
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(readxl)
+  library(ragg)
+  library(patchwork)
+  library(grid)
+  library(systemfonts)
+})
 
 ## ---------------------------------------------------------
 ## 1. File paths
@@ -31,7 +66,7 @@ library(systemfonts)
 
 data_file <- file.path(
   "data",
-  "Meiothecium_cell.csv"
+  "Meiothecium_cell.xlsx"
 )
 
 out_file <- file.path(
@@ -41,9 +76,11 @@ out_file <- file.path(
 
 if (!file.exists(data_file)) {
   stop(
-    "Input file not found: ",
-    data_file,
-    "\nRun this script from the repository root directory."
+    paste0(
+      "Input file not found: ",
+      data_file,
+      "\n\nRun this script from the repository root directory."
+    )
   )
 }
 
@@ -67,36 +104,117 @@ arial_available <- system_fonts() %>%
   ) %>%
   nrow() > 0
 
-if (!arial_available) {
+if (arial_available) {
+  font_family <- "Arial"
+} else {
   warning(
     "Arial was not found in the system font list. ",
-    "The exported figure may use a fallback sans-serif font."
+    "A generic sans-serif font will be used instead."
   )
+  font_family <- "sans"
 }
-
-font_family <- "Arial"
 
 ## ---------------------------------------------------------
 ## 3. Read data
 ## ---------------------------------------------------------
 
-cell <- read_excel(data_file)
+cell <- readxl::read_excel(
+  path = data_file
+)
+
+names(cell) <- names(cell) %>%
+  stringr::str_squish() %>%
+  stringr::str_replace_all(" +", " ")
 
 ## ---------------------------------------------------------
-## 4. Clean column names and rename variables
+## 4. Check and rename required columns
 ## ---------------------------------------------------------
+##
+## The original workbook contains two typographical errors:
+##
+## - "vocher specimen"
+## - "position within the the leaf"
+##
+## The code below accepts both the original spellings and corrected
+## alternatives, so the workbook can be cleaned later without breaking
+## this script.
+## ---------------------------------------------------------
+
+find_column <- function(data_names, candidates, new_name) {
+  match_index <- match(
+    tolower(candidates),
+    tolower(data_names),
+    nomatch = 0
+  )
+
+  match_index <- match_index[match_index > 0]
+
+  if (length(match_index) == 0) {
+    stop(
+      paste0(
+        "Could not find the column required for '",
+        new_name,
+        "'. Accepted names are: ",
+        paste(candidates, collapse = ", ")
+      )
+    )
+  }
+
+  data_names[match_index[1]]
+}
+
+specimen_col <- find_column(
+  names(cell),
+  c(
+    "vocher specimen",
+    "voucher specimen",
+    "voucher",
+    "specimen"
+  ),
+  "specimen"
+)
+
+region_col <- find_column(
+  names(cell),
+  c(
+    "position within the the leaf",
+    "position within the leaf",
+    "leaf region",
+    "region"
+  ),
+  "region"
+)
+
+ratio_col <- find_column(
+  names(cell),
+  c(
+    "cell length-to-width ratio",
+    "cell length to width ratio",
+    "cell l/w ratio",
+    "ratio"
+  ),
+  "ratio"
+)
+
+species_col <- find_column(
+  names(cell),
+  c(
+    "species",
+    "taxon"
+  ),
+  "species"
+)
 
 cell <- cell %>%
-  rename_with(~ str_squish(.x)) %>%
-  rename_with(~ str_replace_all(.x, " +", " ")) %>%
   rename(
-    specimen = `vocher specimen`,
-    region   = `position within the the leaf`,
-    ratio    = `cell length-to-width ratio`
+    specimen = all_of(specimen_col),
+    region = all_of(region_col),
+    ratio = all_of(ratio_col),
+    species = all_of(species_col)
   )
 
 ## ---------------------------------------------------------
-## 5. Define factor order
+## 5. Clean data and define factor order
 ## ---------------------------------------------------------
 
 region_levels <- c(
@@ -111,19 +229,25 @@ region_levels <- c(
 
 cell <- cell %>%
   mutate(
-    region = as.character(region),
-
+    specimen = str_squish(as.character(specimen)),
+    species = str_squish(as.character(species)),
+    region = str_to_lower(
+      str_squish(
+        as.character(region)
+      )
+    ),
     region = str_replace_all(
       region,
       "[- ]",
       "_"
     ),
-
+    ratio = suppressWarnings(
+      as.numeric(ratio)
+    ),
     region = factor(
       region,
       levels = region_levels
     ),
-
     species = factor(
       species,
       levels = c(
@@ -138,17 +262,27 @@ cell <- cell %>%
     !is.na(species)
   )
 
+if (nrow(cell) == 0) {
+  stop(
+    "No usable observations remained after data cleaning. ",
+    "Check the species names, leaf-region labels, and ratio values."
+  )
+}
+
 ## ---------------------------------------------------------
 ## 6. Summary statistics
 ## ---------------------------------------------------------
 
 sum_se <- cell %>%
-  group_by(species, region) %>%
+  group_by(
+    species,
+    region
+  ) %>%
   summarise(
-    n    = n(),
+    n = sum(!is.na(ratio)),
     mean = mean(ratio, na.rm = TRUE),
-    sd   = sd(ratio, na.rm = TRUE),
-    se   = sd / sqrt(n),
+    sd = sd(ratio, na.rm = TRUE),
+    se = sd / sqrt(n),
     .groups = "drop"
   )
 
@@ -157,34 +291,33 @@ sum_se <- cell %>%
 ## ---------------------------------------------------------
 
 col_species <- c(
-  "M. intextum"    = "#F8766D",
+  "M. intextum" = "#F8766D",
   "M. microcarpum" = "#00BFC4"
 )
 
 shape_species <- c(
-  "M. intextum"    = 16,
+  "M. intextum" = 16,
   "M. microcarpum" = 17
 )
 
 line_species <- c(
-  "M. intextum"    = "solid",
+  "M. intextum" = "solid",
   "M. microcarpum" = "dashed"
 )
 
 region_labels <- c(
-  "apical"     = "apical",
-  "subapical"  = "subapical",
-  "middle"     = "middle",
-  "basal"      = "basal",
+  "apical" = "apical",
+  "subapical" = "subapical",
+  "middle" = "middle",
+  "basal" = "basal",
   "supra_alar" = "supra-alar",
-  "alar"       = "alar",
-  "margin"     = "margin"
+  "alar" = "alar",
+  "margin" = "margin"
 )
 
 species_labels_full <- c(
   "M. intextum" =
     expression(italic("M. intextum")),
-
   "M. microcarpum" =
     expression(italic("M. microcarpum"))
 )
@@ -192,7 +325,6 @@ species_labels_full <- c(
 species_labels_short <- c(
   "M. intextum" =
     expression(italic("M. intex.")),
-
   "M. microcarpum" =
     expression(italic("M. micr."))
 )
@@ -202,7 +334,6 @@ species_labels_short <- c(
 ## ---------------------------------------------------------
 
 pA <- ggplot() +
-
   geom_point(
     data = cell,
     aes(
@@ -218,7 +349,6 @@ pA <- ggplot() +
     size = 2.5,
     alpha = 0.45
   ) +
-
   geom_line(
     data = sum_se,
     aes(
@@ -230,7 +360,6 @@ pA <- ggplot() +
     ),
     linewidth = 1.3
   ) +
-
   geom_point(
     data = sum_se,
     aes(
@@ -241,7 +370,6 @@ pA <- ggplot() +
     ),
     size = 4.5
   ) +
-
   geom_errorbar(
     data = sum_se,
     aes(
@@ -253,26 +381,21 @@ pA <- ggplot() +
     width = 0.12,
     linewidth = 0.9
   ) +
-
   scale_color_manual(
     values = col_species,
     labels = species_labels_full
   ) +
-
   scale_shape_manual(
     values = shape_species,
     labels = species_labels_full
   ) +
-
   scale_linetype_manual(
     values = line_species,
     labels = species_labels_full
   ) +
-
   scale_x_discrete(
     labels = region_labels
   ) +
-
   labs(
     x = "Leaf region",
     y = "Cell L : W ratio",
@@ -280,16 +403,13 @@ pA <- ggplot() +
     shape = NULL,
     linetype = NULL
   ) +
-
   coord_cartesian(
     clip = "off"
   ) +
-
   theme_bw(
     base_size = 17,
     base_family = font_family
   ) +
-
   theme(
     legend.position = c(0.76, 0.82),
     legend.justification = c(0.5, 0.5),
@@ -383,14 +503,12 @@ pB <- ggplot(
     fill = species
   )
 ) +
-
   geom_violin(
     trim = TRUE,
     alpha = 0.28,
     color = NA,
     width = 0.65
   ) +
-
   geom_boxplot(
     width = 0.12,
     outlier.shape = NA,
@@ -398,7 +516,6 @@ pB <- ggplot(
     color = "black",
     linewidth = 0.6
   ) +
-
   geom_point(
     aes(
       shape = species
@@ -411,7 +528,6 @@ pB <- ggplot(
     alpha = 0.65,
     color = "black"
   ) +
-
   facet_wrap(
     ~ region,
     ncol = 4,
@@ -420,22 +536,18 @@ pB <- ggplot(
       region_labels
     )
   ) +
-
   scale_fill_manual(
     values = col_species
   ) +
-
   scale_shape_manual(
     values = shape_species
   ) +
-
   scale_x_discrete(
     labels = species_labels_short,
     expand = expansion(
       add = 0.55
     )
   ) +
-
   scale_y_continuous(
     expand = expansion(
       mult = c(
@@ -444,17 +556,14 @@ pB <- ggplot(
       )
     )
   ) +
-
   labs(
     x = NULL,
     y = "Cell L : W ratio"
   ) +
-
   theme_bw(
     base_size = 16,
     base_family = font_family
   ) +
-
   theme(
     legend.position = "none",
 
@@ -522,18 +631,15 @@ pB <- ggplot(
 ## ---------------------------------------------------------
 
 final_plot <- pA / pB +
-
   plot_layout(
     heights = c(
       1.10,
       1.75
     )
   ) +
-
   plot_annotation(
     tag_levels = "A"
   ) &
-
   theme(
     plot.tag = element_text(
       face = "bold",
@@ -542,11 +648,14 @@ final_plot <- pA / pB +
     )
   )
 
+## Display the figure in the current graphics device
+print(final_plot)
+
 ## ---------------------------------------------------------
 ## 11. Export TIFF
 ## ---------------------------------------------------------
 
-agg_tiff(
+ragg::agg_tiff(
   filename = out_file,
   width = 10.5,
   height = 9.2,
@@ -558,7 +667,9 @@ agg_tiff(
 
 print(final_plot)
 
-dev.off()
+invisible(
+  dev.off()
+)
 
 message(
   "Figure saved to: ",
