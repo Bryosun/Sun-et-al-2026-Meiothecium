@@ -1,4 +1,4 @@
-script = r'''## ============================================================
+## ============================================================
 ## Figure 2: Meiothecium idealized leaf outlines
 ##
 ## Sun et al. (2026)
@@ -639,10 +639,3 @@ cat(
   "\n",
   sep = ""
 )
-'''
-
-path = "/mnt/data/Figure2_leaf_outlines.R"
-with open(path, "w", encoding="utf-8") as f:
-    f.write(script)
-
-print(path)
