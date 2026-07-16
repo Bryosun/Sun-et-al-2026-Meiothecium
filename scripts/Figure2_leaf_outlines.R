@@ -118,6 +118,11 @@ dat <- readxl::read_excel(
 )
 
 names(dat) <- trimws(names(dat))
+names(dat) <- gsub(
+  pattern = "[[:space:]]+",
+  replacement = "_",
+  x = names(dat)
+)
 
 ## ------------------------------------------------------------
 ## 3. Check required columns
